@@ -1,13 +1,12 @@
 from pymatgen.core import Structure, Element
 from maggma.builders import Builder
 from pymatgen.entries.compatibility import MaterialsProjectCompatibility
-from pymatgen.analysis.structure_matcher import (
-    StructureMatcher, ElementComparator
-)
+from pymatgen.analysis.structure_matcher import StructureMatcher, ElementComparator
 
 from pymatgen.analysis.phase_diagram import PhaseDiagram, PhaseDiagramError
-from pymatgen.transformations.standard_transformations import \
-    PrimitiveCellTransformation
+from pymatgen.transformations.standard_transformations import (
+    PrimitiveCellTransformation,
+)
 from itertools import chain, combinations
 from itertools import groupby
 from pymatgen.entries.computed_entries import ComputedStructureEntry, ComputedEntry
@@ -23,21 +22,38 @@ import operator
 __author__ = "Jimmy Shen"
 __email__ = "jmmshn@lbl.gov"
 
+
 def s_hash(el):
-    return el.data['comp_delith']
+    return el.data["comp_delith"]
 
 
 redox_els = [
-    'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Nb', 'Mo', 'Sn', 'Sb', 'W',
-    'Re', 'Bi', 'C', 'Hf'
+    "Ti",
+    "V",
+    "Cr",
+    "Mn",
+    "Fe",
+    "Co",
+    "Ni",
+    "Cu",
+    "Nb",
+    "Mo",
+    "Sn",
+    "Sb",
+    "W",
+    "Re",
+    "Bi",
+    "C",
+    "Hf",
 ]
 mat_props = [
-    'structure',
-    'calc_settings',
-    'task_id',
-    '_sbxn',
-    'entries',
-    'formula_pretty']
+    "structure",
+    "calc_settings",
+    "task_id",
+    "_sbxn",
+    "entries",
+    "formula_pretty",
+]
 
 sg_fields = ["number", "hall_number", "international", "hall", "choice"]
 
@@ -57,7 +73,7 @@ def generic_groupby(list_in, comp=operator.eq):
         if ls1 is not None:
             continue
         list_out[i1] = label_num
-        for i2, ls2 in list(enumerate(list_out))[i1 + 1:]:
+        for i2, ls2 in list(enumerate(list_out))[i1 + 1 :]:
             if comp(list_in[i1], list_in[i2]):
                 if list_out[i2] is None:
                     list_out[i2] = list_out[i1]
@@ -69,13 +85,18 @@ def generic_groupby(list_in, comp=operator.eq):
 
 
 class ElectrodesBuilder(Builder):
-    def __init__(self,
-                 materials,
-                 electro,
-                 working_ion,
-                 query=None,
-                 compatibility=None,
-                 **kwargs):
+    def __init__(
+        self,
+        materials,
+        electro,
+        working_ion,
+        query=None,
+        compatibility=None,
+        ltol=0.2,
+        stol=0.3,
+        angle_tol=5,
+        **kwargs,
+    ):
         """
         Calculates physical parameters of battery materials the battery entries using
         groups of ComputedStructureEntry and the entry for the most stable version of the working_ion in the system
@@ -98,12 +119,9 @@ class ElectrodesBuilder(Builder):
             else MaterialsProjectCompatibility("Advanced")
         )
         self.completed_tasks = set()
-
-        self.sm = StructureMatcher(
-            comparator=ElementComparator(),
-            primitive_cell=True,
-            ignored_species=[
-                self.working_ion])
+        self.ltol = ltol
+        self.stol = stol
+        self.angle_tol = angle_tol
         super().__init__(sources=[materials], targets=[electro], **kwargs)
 
     def get_items(self):
@@ -125,45 +143,39 @@ class ElectrodesBuilder(Builder):
         #     self.working_ion_entry = min(working_ion_entries, key=lambda e: e.energy_per_atom)
 
         self.logger.info(
-            "Grabbing the relavant chemical systems containing the current working ion and a single redox element.")
+            "Grabbing the relavant chemical systems containing the current working ion and a single redox element."
+        )
         q = dict()
-        q.update({
-            '$and': [{
-                "elements": {
-                    '$in': [self.working_ion]
-                }
-            }, {
-                "elements": {
-                    '$in': redox_els
-                }
-            }]
-        })
+        q.update(
+            {
+                "$and": [
+                    {"elements": {"$in": [self.working_ion]}},
+                    {"elements": {"$in": redox_els}},
+                ]
+            }
+        )
         q.update(self.query)
 
-        chemsys_names = self.materials.distinct('chemsys', q)
-        self.logger.debug(f'chemsys_names: {chemsys_names}')
+        chemsys_names = self.materials.distinct("chemsys", q)
+        self.logger.debug(f"chemsys_names: {chemsys_names}")
         for chemsys in chemsys_names:
             self.logger.debug(f"Calculating the phase diagram for: {chemsys}")
             # get the phase diagram from using the chemsys
             pd_q = {
-                'chemsys': {
-                    "$in": list(chemsys_permutations(chemsys))
-                },
-                'deprecated': False
+                "chemsys": {"$in": list(chemsys_permutations(chemsys))},
+                "deprecated": False,
             }
             self.logger.debug(f"pd_q: {pd_q}")
-            pd_docs = list(
-                self.materials.query(properties=mat_props, criteria=pd_q))
-            pd_ents = self._mat_doc2comp_entry(
-                pd_docs, is_structure_entry=True)
+            pd_docs = list(self.materials.query(properties=mat_props, criteria=pd_q))
+            pd_ents = self._mat_doc2comp_entry(pd_docs, is_structure_entry=True)
             pd_ents = list(filter(None.__ne__, pd_ents))
 
             for item in self.get_hashed_entries_from_chemsys(chemsys):
-                item.update({'pd_entries': pd_ents})
+                item.update({"pd_entries": pd_ents})
 
-                ids_all_ents = {ient.entry_id for ient in item['elec_entries']}
-                ids_pd = {ient.entry_id for ient in item['pd_entries']}
-                assert(ids_all_ents.issubset(ids_pd))
+                ids_all_ents = {ient.entry_id for ient in item["elec_entries"]}
+                ids_pd = {ient.entry_id for ient in item["pd_entries"]}
+                assert ids_all_ents.issubset(ids_pd)
                 self.logger.debug(
                     f"all_ents [{[ient.composition.reduced_formula for ient in item['elec_entries']]}]"
                 )
@@ -185,12 +197,19 @@ class ElectrodesBuilder(Builder):
         # then we will sort them
         elements = set(chemsys.split("-"))
         chemsys_w_wo_ion = {
-            "-".join(sorted(c))
-            for c in [elements, elements - {self.working_ion}]
+            "-".join(sorted(c)) for c in [elements, elements - {self.working_ion}]
         }
         self.logger.info("chemsys list: {}".format(chemsys_w_wo_ion))
-        q = {"$and": [{'chemsys': {"$in": list(chemsys_w_wo_ion)}, 'formula_pretty': {
-            '$ne': self.working_ion}, 'deprecated': False}, self.query]}
+        q = {
+            "$and": [
+                {
+                    "chemsys": {"$in": list(chemsys_w_wo_ion)},
+                    "formula_pretty": {"$ne": self.working_ion},
+                    "deprecated": False,
+                },
+                self.query,
+            ]
+        }
         self.logger.debug(f"q: {q}")
         docs = self.materials.query(q, mat_props)
         entries = self._mat_doc2comp_entry(docs)
@@ -198,8 +217,7 @@ class ElectrodesBuilder(Builder):
         self.logger.debug(
             f"entries found using q [{[ient.composition.reduced_formula for ient in entries]}]"
         )
-        self.logger.info("Found {} entries in the database".format(
-            len(entries)))
+        self.logger.info("Found {} entries in the database".format(len(entries)))
         entries = list(filter(None.__ne__, entries))
 
         if len(entries) > 1:
@@ -209,10 +227,12 @@ class ElectrodesBuilder(Builder):
             for _, g in groupby(entries, key=s_hash):
                 g = list(g)
                 self.logger.debug(
-                    "The full group of entries found based on chemical formula alone: {}"
-                    .format([el.name for el in g]))
+                    "The full group of entries found based on chemical formula alone: {}".format(
+                        [el.name for el in g]
+                    )
+                )
                 if len(g) > 1:
-                    yield {'chemsys': chemsys, 'elec_entries': g}
+                    yield {"chemsys": chemsys, "elec_entries": g}
 
     def process_item(self, item):
         """
@@ -223,121 +243,120 @@ class ElectrodesBuilder(Builder):
         returns:
             (chemsys, [group]): entry contains a list of entries the materials together by composition
         """
+        sm = StructureMatcher(
+            comparator=ElementComparator(),
+            primitive_cell=True,
+            ignored_species=[self.working_ion],
+            ltol=self.ltol,
+            stol=self.stol,
+            angle_tol=self.angle_tol,
+        )
         # sort the entries intro subgroups
         # then perform PD analysis
-        elec_entries = item['elec_entries']
-        pd_ents = item['pd_entries']
+        elec_entries = item["elec_entries"]
+        pd_ents = item["pd_entries"]
         phdi = PhaseDiagram(pd_ents)
 
         # The working ion entries
         ents_wion = list(
             filter(
-                lambda x: x.composition.get_integer_formula_and_factor()[0] == self.working_ion, pd_ents))
-        working_ion_entry = min(ents_wion,
-                                key=lambda e: e.energy_per_atom)
-        assert (working_ion_entry is not None)
+                lambda x: x.composition.get_integer_formula_and_factor()[0]
+                == self.working_ion,
+                pd_ents,
+            )
+        )
+        working_ion_entry = min(ents_wion, key=lambda e: e.energy_per_atom)
+        assert working_ion_entry is not None
 
-        grouped_entries = list(self.get_sorted_subgroups(elec_entries))
+        grouped_entries = list(self.get_sorted_subgroups(elec_entries, sm))
         docs = []  # results
 
         for group in grouped_entries:
             self.logger.debug(
-                f"Grouped entries in all sandboxes {', '.join([en.name for en in group])}"
+                f"Grouped entries in {', '.join([en.name for en in group])}"
             )
             for en in group:
                 # skip this d_muO2 stuff if you do note have oxygen
-                if Element('O') in en.composition.elements:
-                    d_muO2 = [{
-                        'reaction': str(itr['reaction']),
-                        'chempot': itr['chempot'],
-                        'evolution': itr['evolution']
-                    } for itr in phdi.get_element_profile('O', en.composition)]
+                if Element("O") in en.composition.elements:
+                    d_muO2 = [
+                        {
+                            "reaction": str(itr["reaction"]),
+                            "chempot": itr["chempot"],
+                            "evolution": itr["evolution"],
+                        }
+                        for itr in phdi.get_element_profile("O", en.composition)
+                    ]
                 else:
                     d_muO2 = None
-                en.data['muO2'] = d_muO2
-                en.data['decomposition_energy'] = phdi.get_e_above_hull(en)
+                en.data["muO2"] = d_muO2
+                en.data["decomposition_energy"] = phdi.get_e_above_hull(en)
 
             # sort out the sandboxes
             # for each sandbox core+sandbox will both contribute entries
-            all_sbx = [ent.data['_sbxn'] for ent in group]
-            all_sbx = set(chain.from_iterable(all_sbx))
-            self.logger.debug(f"All sandboxes {', '.join(list(all_sbx))}")
 
-            for isbx in all_sbx:
-                group_sbx = list(
-                    filter(
-                        lambda ent: (isbx in ent.data['_sbxn']) or (ent.data[
-                            '_sbxn'] == ['core']), group))
-                # Need more than one level of lithiation to define a electrode
-                # material
-                if len(group_sbx) == 1:
-                    continue
-                self.logger.debug(
-                    f"Grouped entries in sandbox {isbx} -- {', '.join([en.name for en in group_sbx])}"
+            # Need more than one level of lithiation to define a electrode
+            # material
+
+            try:
+                result = InsertionElectrode(group, working_ion_entry)
+                assert len(result._stable_entries) > 1
+            except AssertionError:
+                # The stable entries did not form a hull with the Li entry
+                self.logger.warn(
+                    f"Not able to generate a  entries using the following entires-- \
+                        {', '.join([str(en.entry_id) for en in group])}"
                 )
+                continue
 
-                try:
-                    result = InsertionElectrode(group_sbx,
-                                                working_ion_entry)
-                    assert (len(result._stable_entries) > 1)
-                except AssertionError:
-                    # The stable entries did not form a hull with the Li entry
-                    self.logger.warn(
-                        f"Not able to generate a  entries in sandbox {isbx} using the following entires-- \
-                            {', '.join([str(en.entry_id) for en in group_sbx])}"
-                    )
-                    continue
+            spacegroup = SpacegroupAnalyzer(
+                result.get_stable_entries(charge_to_discharge=True)[0].structure
+            )
+            d = result.as_dict_summary()
+            d['voltage_pairs'] = d.pop('adj_pairs')
 
-                spacegroup = SpacegroupAnalyzer(
-                    result.get_stable_entries(
-                        charge_to_discharge=True)[0].structure)
-                d = result.as_dict_summary()
-                ids = [entry.entry_id for entry in result.get_all_entries()]
-                lowest_id = sorted(ids, key=lambda x: x.split('-')[-1])[0]
-                d['spacegroup'] = {
-                    k: spacegroup._space_group_data[k]
-                    for k in sg_fields
-                }
+            ids = [entry.entry_id for entry in result.get_all_entries()]
+            lowest_id = sorted(ids, key=get_id_num)[0]
+            d["spacegroup"] = {k: spacegroup._space_group_data[k] for k in sg_fields}
+            d["battery_id"] = str(lowest_id) + "_" + self.working_ion
 
-                if isbx == 'core':
-                    d['battid'] = lowest_id + '_' + self.working_ion
-                else:
-                    d['battid'] = lowest_id + '_' + \
-                        self.working_ion + '_' + isbx
-                # Only allow one sandbox value for each electrode
-                d['_sbxn'] = [isbx]
-
-                # store the conversion profile up to the discharged compositions
-                f, v = self.get_competing_conversion_electrode_profile(Composition(d['formula_discharge']), phase_diagram=phdi)
-                d['conversion_data'] = {'fracA_charge_discharge': f,
-                                        'conversion_voltage' : v}
-                docs.append(d)
+            # store the conversion profile up to the discharged compositions
+            f, v = self.get_competing_conversion_electrode_profile(
+                Composition(d["formula_discharge"]), phase_diagram=phdi
+            )
+            d["conversion_data"] = {
+                "fracA_charge_discharge": f,
+                "conversion_voltage": v,
+            }
+            host_structure = group[0].structure.copy()
+            host_structure.remove_species([self.working_ion])
+            d["host_structure"] = host_structure.as_dict()
+            docs.append(d)
 
         return docs
 
     def update_targets(self, items):
         items = list(filter(None, chain.from_iterable(items)))
         if len(items) > 0:
-            self.logger.info("Updating {} electro documents".format(
-                len(items)))
-            self.electro.update(docs=items, key=['battid'])
+            self.logger.info("Updating {} electro documents".format(len(items)))
+            self.electro.update(docs=items, key=["battery_id"])
         else:
             self.logger.info("No items to update")
 
-    def get_sorted_subgroups(self, group):
-        matching_subgroups = list(self.group_entries(group))
+    def get_sorted_subgroups(self, group, sm):
+        matching_subgroups = list(self.group_entries(group, sm))
         if matching_subgroups:
             for subg in matching_subgroups:
                 wion_conc = set()
                 for el in subg:
-                    wion_conc.add(el.composition.fractional_composition[
-                        self.working_ion])
+                    wion_conc.add(
+                        el.composition.fractional_composition[self.working_ion]
+                    )
                 if len(wion_conc) > 1:
                     yield subg
                 else:
                     del subg
 
-    def group_entries(self, g):
+    def group_entries(self, g, sm):
         """
         group the structures together based on similarity of the delithiated primitive cells
         Args:
@@ -348,10 +367,7 @@ class ElectrodesBuilder(Builder):
         labs = generic_groupby(
             g,
             comp=lambda x, y: any(
-                [
-                    self.sm.fit(x.structure, y.structure),
-                    self.sm.fit(y.structure, x.structure),
-                ]
+                [sm.fit(x.structure, y.structure), sm.fit(y.structure, x.structure)]
             ),
         )  # because fit is not commutitive
         for ilab in unique(labs):
@@ -362,10 +378,7 @@ class ElectrodesBuilder(Builder):
     def _chemsys_delith(self, chemsys):
         # get the chemsys with the working ion removed from the set
         elements = set(chemsys.split("-"))
-        return {
-            "-".join(sorted(c))
-            for c in [elements, elements - {self.working_ion}]
-        }
+        return {"-".join(sorted(c)) for c in [elements, elements - {self.working_ion}]}
 
     def _mat_doc2comp_entry(self, docs, is_structure_entry=True):
         def get_prim_host(struct):
@@ -380,7 +393,7 @@ class ElectrodesBuilder(Builder):
         entries = []
 
         for d in docs:
-            struct = Structure.from_dict(d['structure'])
+            struct = Structure.from_dict(d["structure"])
             # get the calc settings
             entry_type = "gga_u" if "gga_u" in d["entries"] else "gga"
             d["entries"][entry_type]["correction"] = 0.0
@@ -396,8 +409,7 @@ class ElectrodesBuilder(Builder):
                 dd = en.composition.as_dict()
                 if self.working_ion in dd:
                     dd.pop(self.working_ion)
-                en.data['comp_delith'] = Composition.from_dict(
-                    dd).reduced_formula
+                en.data["comp_delith"] = Composition.from_dict(dd).reduced_formula
 
             en.data["oxide_type"] = oxide_type(struct)
 
@@ -405,8 +417,8 @@ class ElectrodesBuilder(Builder):
                 entries.append(self.compatibility.process_entry(en))
             except BaseException:
                 self.logger.warn(
-                    'unable to process material with task_id: {}'.format(
-                        en.entry_id))
+                    "unable to process material with task_id: {}".format(en.entry_id)
+                )
         return entries
 
     def get_competing_conversion_electrode_profile(self, comp, phase_diagram):
@@ -419,19 +431,27 @@ class ElectrodesBuilder(Builder):
 
         """
 
-        ce = ConversionElectrode.from_composition_and_pd(comp=comp,
-                                                         pd=phase_diagram,
-                                                         working_ion_symbol=self.working_ion,
-                                                         allow_unstable=True,
-                                                         )
+        ce = ConversionElectrode.from_composition_and_pd(
+            comp=comp,
+            pd=phase_diagram,
+            working_ion_symbol=self.working_ion,
+            allow_unstable=True,
+        )
 
-        max_frac = comp.get_atomic_fraction(self.working_ion)
+        # max_frac = comp.get_atomic_fraction(self.working_ion)
         frac_woin = []
         avg_voltage = []
-        for itr in ce.get_summary_dict()['adj_pairs']:
-            frac_woin.append([itr['fracA_charge'], itr['fracA_discharge']])
-            avg_voltage.append(itr['average_voltage'])
+        for itr in ce.get_summary_dict()["adj_pairs"]:
+            frac_woin.append([itr["fracA_charge"], itr["fracA_discharge"]])
+            avg_voltage.append(itr["average_voltage"])
 
         return frac_woin, avg_voltage
 
 
+def get_id_num(task_id):
+    if isinstance(task_id, int):
+        return task_id
+    if isinstance(task_id, str) and "-" in task_id:
+        return int(task_id.split("-")[-1])
+    else:
+        raise ValueError("TaskID needs to be either a number or of the form xxx-#####")
