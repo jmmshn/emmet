@@ -2,6 +2,7 @@ from pymatgen.core import Structure, Element
 from maggma.builders import Builder
 from pymatgen.entries.compatibility import MaterialsProjectCompatibility
 from pymatgen.analysis.structure_matcher import StructureMatcher, ElementComparator
+from pymatgen.apps.battery.plotter import VoltageProfilePlotter
 
 from pymatgen.analysis.phase_diagram import PhaseDiagram, PhaseDiagramError
 from pymatgen.transformations.standard_transformations import (
@@ -298,15 +299,17 @@ class ElectrodesBuilder(Builder):
             # material
 
             try:
-                result = InsertionElectrode(group, working_ion_entry)
+                result = InsertionElectrode.from_entries(group, working_ion_entry)
                 assert len(result._stable_entries) > 1
             except AssertionError:
                 # The stable entries did not form a hull with the Li entry
                 self.logger.warn(
-                    f"Not able to generate a  entries using the following entires-- \
+                    f"Not able to generate a hull using the following entires-- \
                         {', '.join([str(en.entry_id) for en in group])}"
                 )
                 continue
+
+
 
             spacegroup = SpacegroupAnalyzer(
                 result.get_stable_entries(charge_to_discharge=True)[0].structure
@@ -330,6 +333,13 @@ class ElectrodesBuilder(Builder):
             host_structure = group[0].structure.copy()
             host_structure.remove_species([self.working_ion])
             d["host_structure"] = host_structure.as_dict()
+
+            # plot data
+            vp = VoltageProfilePlotter()
+            vp.add_electrode(result, label=d["formula_charge"])
+            vp.get_plot()
+            d['plot_data'] = vp.get_plot_data(result)
+
             docs.append(d)
 
         return docs
