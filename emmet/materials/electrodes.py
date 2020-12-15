@@ -334,7 +334,7 @@ class ElectrodesBuilder(Builder):
             for xaxis in ['capacity_grav', "x_form"]:
                 vp = VoltageProfilePlotter(xaxis)
                 vp.add_electrode(ie, label="Insertion Profile")
-                vp.add_electrode(ce, label=d["Conversion Profile"])
+                vp.add_electrode(ce, label="Conversion Profile")
                 fig = vp.get_plotly_figure()
                 fig.update_layout(template="simple_white", title_x=0.5, xaxis={'range': (-0.1, ie.x_discharge * 1.1)})
                 d[f'plot_data_{xaxis}'] = fig.to_json()
