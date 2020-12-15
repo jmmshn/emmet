@@ -309,15 +309,19 @@ class ElectrodesBuilder(Builder):
                 )
                 continue
 
-            spacegroup = SpacegroupAnalyzer(
-                ie.get_stable_entries(charge_to_discharge=True)[0].structure
-            )
             d = ie.get_summary_dict()
 
+            # Get the battery_id using the lowest numerical value
             ids = [entry.entry_id for entry in ie.get_all_entries()]
             lowest_id = sorted(ids, key=get_id_num)[0]
-            d["spacegroup"] = {k: spacegroup._space_group_data[k] for k in sg_fields}
             d["battery_id"] = str(lowest_id) + "_" + self.working_ion
+
+            host_structure = group[0].structure.copy()
+            host_structure.remove_species([self.working_ion])
+            d["host_structure"] = host_structure.as_dict()
+
+            spacegroup = SpacegroupAnalyzer(host_structure)
+            d["spacegroup"] = {k: spacegroup._space_group_data[k] for k in sg_fields}
 
             # store the conversion electrode
             ce = self.get_competing_conversion_electrode(
@@ -325,9 +329,6 @@ class ElectrodesBuilder(Builder):
             )
             d['converions_electrode'] = ce.get_summary_dict()
 
-            host_structure = group[0].structure.copy()
-            host_structure.remove_species([self.working_ion])
-            d["host_structure"] = host_structure.as_dict()
 
             # plot data
             for xaxis in ['capacity_grav', "x_form"]:
