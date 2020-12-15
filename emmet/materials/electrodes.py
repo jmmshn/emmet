@@ -300,7 +300,7 @@ class ElectrodesBuilder(Builder):
 
             try:
                 ie = InsertionElectrode.from_entries(group, working_ion_entry, strip_structures=True)
-                assert len(ie._stable_entries) > 1
+                assert len(ie.num_steps) >= 1
             except AssertionError:
                 # The stable entries did not form a hull with the Li entry
                 self.logger.warn(
