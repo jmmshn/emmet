@@ -298,16 +298,15 @@ class ElectrodesBuilder(Builder):
             # Need more than one level of lithiation to define a electrode
             # material
 
-            try:
-                ie = InsertionElectrode.from_entries(group, working_ion_entry, strip_structures=True)
-                assert len(ie.num_steps) >= 1
-            except AssertionError:
-                # The stable entries did not form a hull with the Li entry
+            ie = InsertionElectrode.from_entries(group, working_ion_entry, strip_structures=True)
+            if ie.num_steps < 1:
                 self.logger.warn(
                     f"Not able to generate a hull using the following entires-- \
                         {', '.join([str(en.entry_id) for en in group])}"
                 )
                 continue
+                # except AssertionError:
+                # The stable entries did not form a hull with the Li entry
 
             d = ie.get_summary_dict()
 
@@ -335,10 +334,14 @@ class ElectrodesBuilder(Builder):
                 vp = VoltageProfilePlotter(xaxis)
                 vp.add_electrode(ie, label="Insertion Profile")
                 vp.add_electrode(ce, label="Conversion Profile")
-                fig = vp.get_plotly_figure()
-                xx, _ = vp.get_plot(ie)
-                xlim = xx[-1]
-                fig.update_layout(title_x=0.5, xaxis={'range': (-0.1, xlim * 1.1)})
+                fig = vp.get_plotly_figure(term_zero = False)
+                fig.layout.pop("template")
+
+                xx, _ = vp.get_plot_data(ie, term_zero = False)
+                xmin, xmax = xx[0], xx[-1]
+                xlim = xmax - xmin
+
+                fig.update_layout(title_x=0.5, xaxis={'range': (xmin-0.05*xlim, xmax + xlim * 0.05)})
                 d[f'plot_data_{xaxis}'] = fig.to_json()
             docs.append(d)
 
