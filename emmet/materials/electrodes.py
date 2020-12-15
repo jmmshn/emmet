@@ -1,5 +1,5 @@
 from pymatgen.core import Structure, Element
-from maggma.builders import Builder
+from maggma.builders import Builder, MapBuilder
 from pymatgen.entries.compatibility import MaterialsProjectCompatibility
 from pymatgen.analysis.structure_matcher import StructureMatcher, ElementComparator
 from pymatgen.apps.battery.plotter import VoltageProfilePlotter
@@ -84,6 +84,32 @@ def generic_groupby(list_in, comp=operator.eq):
         label_num += 1
     return list_out
 
+
+class ElectrodeSummaryBuilder(MapBuilder):
+    def __init__(self, source, target, **kwargs):
+        source.key = 'battery_id'
+        target.key = 'battery_id'
+        super(ElectrodeSummaryBuilder, self).__init__(source=source, target=target, **kwargs)
+
+    def unary_function(self, item):
+        ie = InsertionElectrode.from_dict()
+        ce = InsertionElectrode.from_dict()
+        d = ie.get_summary_dict()
+        # plot data
+        for xaxis in ['capacity_grav', "x_form"]:
+            vp = VoltageProfilePlotter(xaxis)
+            vp.add_electrode(ie, label="Insertion Profile")
+            vp.add_electrode(ce, label="Conversion Profile")
+            fig = vp.get_plotly_figure(term_zero = False)
+            fig.layout.pop("template")
+
+            xx, _ = vp.get_plot_data(ie, term_zero = False)
+            xmin, xmax = xx[0], xx[-1]
+            xlim = xmax - xmin
+
+            fig.update_layout(title_x=0.5, xaxis={'range': (xmin-0.05*xlim, xmax + xlim * 0.05)})
+            d[f'plot_data_{xaxis}'] = fig.to_json()
+        return d
 
 class ElectrodesBuilder(Builder):
     def __init__(
@@ -305,10 +331,14 @@ class ElectrodesBuilder(Builder):
                         {', '.join([str(en.entry_id) for en in group])}"
                 )
                 continue
-                # except AssertionError:
-                # The stable entries did not form a hull with the Li entry
+            ce = self.get_competing_conversion_electrode(
+                ie.framework, phase_diagram=phdi
+            )
 
-            d = ie.get_summary_dict()
+            d = {
+                'insertion_electrode': ie.as_dict(),
+                'converion_electrode': ce.as_dict(),
+            }
 
             # Get the battery_id using the lowest numerical value
             ids = [entry.entry_id for entry in ie.get_all_entries()]
@@ -321,28 +351,6 @@ class ElectrodesBuilder(Builder):
 
             spacegroup = SpacegroupAnalyzer(host_structure)
             d["spacegroup"] = {k: spacegroup._space_group_data[k] for k in sg_fields}
-
-            # store the conversion electrode
-            ce = self.get_competing_conversion_electrode(
-                Composition(d["formula_discharge"]), phase_diagram=phdi
-            )
-            d['converions_electrode'] = ce.get_summary_dict()
-
-
-            # plot data
-            for xaxis in ['capacity_grav', "x_form"]:
-                vp = VoltageProfilePlotter(xaxis)
-                vp.add_electrode(ie, label="Insertion Profile")
-                vp.add_electrode(ce, label="Conversion Profile")
-                fig = vp.get_plotly_figure(term_zero = False)
-                fig.layout.pop("template")
-
-                xx, _ = vp.get_plot_data(ie, term_zero = False)
-                xmin, xmax = xx[0], xx[-1]
-                xlim = xmax - xmin
-
-                fig.update_layout(title_x=0.5, xaxis={'range': (xmin-0.05*xlim, xmax + xlim * 0.05)})
-                d[f'plot_data_{xaxis}'] = fig.to_json()
             docs.append(d)
 
         return docs
