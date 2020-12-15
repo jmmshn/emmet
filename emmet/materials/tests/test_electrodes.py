@@ -79,7 +79,7 @@ class TestElectroInsert(unittest.TestCase):
             ents = sorted(item['elec_entries'], key=lambda x : x.composition.get_atomic_fraction(self.builder.working_ion))
             pd = PhaseDiagram(item['pd_entries'])
             comp = ents[-1].composition
-            f, v = self.builder.get_competing_conversion_electrode_profile(comp, pd)
+            f, v = self.builder.get_competing_conversion_electrode(comp, pd)
             self.assertEqual(len(f), len(v))
 
     def test_process_items(self):

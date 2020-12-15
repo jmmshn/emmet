@@ -299,8 +299,8 @@ class ElectrodesBuilder(Builder):
             # material
 
             try:
-                result = InsertionElectrode.from_entries(group, working_ion_entry)
-                assert len(result._stable_entries) > 1
+                ie = InsertionElectrode.from_entries(group, working_ion_entry, strip_structures=True)
+                assert len(ie._stable_entries) > 1
             except AssertionError:
                 # The stable entries did not form a hull with the Li entry
                 self.logger.warn(
@@ -309,37 +309,34 @@ class ElectrodesBuilder(Builder):
                 )
                 continue
 
-
-
             spacegroup = SpacegroupAnalyzer(
-                result.get_stable_entries(charge_to_discharge=True)[0].structure
+                ie.get_stable_entries(charge_to_discharge=True)[0].structure
             )
-            d = result.as_dict_summary()
-            d['voltage_pairs'] = d.pop('adj_pairs')
+            d = ie.get_summary_dict()
 
-            ids = [entry.entry_id for entry in result.get_all_entries()]
+            ids = [entry.entry_id for entry in ie.get_all_entries()]
             lowest_id = sorted(ids, key=get_id_num)[0]
             d["spacegroup"] = {k: spacegroup._space_group_data[k] for k in sg_fields}
             d["battery_id"] = str(lowest_id) + "_" + self.working_ion
 
-            # store the conversion profile up to the discharged compositions
-            f, v = self.get_competing_conversion_electrode_profile(
+            # store the conversion electrode
+            ce = self.get_competing_conversion_electrode(
                 Composition(d["formula_discharge"]), phase_diagram=phdi
             )
-            d["conversion_data"] = {
-                "fracA_charge_discharge": f,
-                "conversion_voltage": v,
-            }
+            d['converions_electrode'] = ce.get_summary_dict()
+
             host_structure = group[0].structure.copy()
             host_structure.remove_species([self.working_ion])
             d["host_structure"] = host_structure.as_dict()
 
             # plot data
-            vp = VoltageProfilePlotter()
-            vp.add_electrode(result, label=d["formula_charge"])
-            vp.get_plot()
-            d['plot_data'] = vp.get_plot_data(result)
-
+            for xaxis in ['capacity_grav', "x_form"]:
+                vp = VoltageProfilePlotter(xaxis)
+                vp.add_electrode(ie, label="Insertion Profile")
+                vp.add_electrode(ce, label=d["Conversion Profile"])
+                fig = vp.get_plotly_figure()
+                fig.update_layout(template="simple_white", title_x=0.5, xaxis={'range': (-0.1, ie.x_discharge * 1.1)})
+                d[f'plot_data_{xaxis}'] = fig.to_json()
             docs.append(d)
 
         return docs
@@ -431,31 +428,17 @@ class ElectrodesBuilder(Builder):
                 )
         return entries
 
-    def get_competing_conversion_electrode_profile(self, comp, phase_diagram):
+    def get_competing_conversion_electrode(self, comp, phase_diagram):
         """
-        Take the composition and draw the conversion electrode profile
-        Stop drawing the profile once the working ion content of the conversion electrode reaches the maximum content of the specificed composition
-
-
-        Returns:
-
+        Use the present phase diagram to constructure the completing conversion electrode
         """
 
-        ce = ConversionElectrode.from_composition_and_pd(
+        return ConversionElectrode.from_composition_and_pd(
             comp=comp,
             pd=phase_diagram,
             working_ion_symbol=self.working_ion,
             allow_unstable=True,
         )
-
-        # max_frac = comp.get_atomic_fraction(self.working_ion)
-        frac_woin = []
-        avg_voltage = []
-        for itr in ce.get_summary_dict()["adj_pairs"]:
-            frac_woin.append([itr["fracA_charge"], itr["fracA_discharge"]])
-            avg_voltage.append(itr["average_voltage"])
-
-        return frac_woin, avg_voltage
 
 
 def get_id_num(task_id):
