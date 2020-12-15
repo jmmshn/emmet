@@ -336,7 +336,9 @@ class ElectrodesBuilder(Builder):
                 vp.add_electrode(ie, label="Insertion Profile")
                 vp.add_electrode(ce, label="Conversion Profile")
                 fig = vp.get_plotly_figure()
-                fig.update_layout(template="simple_white", title_x=0.5, xaxis={'range': (-0.1, ie.x_discharge * 1.1)})
+                xx, _ = vp.get_plot(ie)
+                xlim = xx[-1]
+                fig.update_layout(title_x=0.5, xaxis={'range': (-0.1, xlim * 1.1)})
                 d[f'plot_data_{xaxis}'] = fig.to_json()
             docs.append(d)
 
