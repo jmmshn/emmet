@@ -272,9 +272,10 @@ class StructureGroupBuilder(Builder):
         framework_groups = groupby(mat_docs, key=lambda x: x.framework)
         frame_group_cnt_ = 0
         for framework, f_group in framework_groups:
-            self.logger.debug(f"Performing structure matching for {framework} with {len(f_group)} documents.")
+            f_group_l = list(f_group)
+            self.logger.debug(f"Performing structure matching for {framework} with {len(f_group_l)} documents.")
             ungrouped_structures = []
-            for g in self._group_struct(list(f_group), sm):
+            for g in self._group_struct(f_group_l, sm):
                 res_doc = get_doc_from_group(g, structure_matched=True)
                 if res_doc is not None:
                     frame_group_cnt_ += len(res_doc["grouped_task_ids"])
