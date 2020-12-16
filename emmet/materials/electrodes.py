@@ -87,29 +87,34 @@ def generic_groupby(list_in, comp=operator.eq):
 
 class ElectrodeSummaryBuilder(MapBuilder):
     def __init__(self, source, target, **kwargs):
-        source.key = 'battery_id'
-        target.key = 'battery_id'
-        super(ElectrodeSummaryBuilder, self).__init__(source=source, target=target, **kwargs)
+        source.key = "battery_id"
+        target.key = "battery_id"
+        super(ElectrodeSummaryBuilder, self).__init__(
+            source=source, target=target, **kwargs
+        )
 
     def unary_function(self, item):
         ie = InsertionElectrode.from_dict()
         ce = InsertionElectrode.from_dict()
         d = ie.get_summary_dict()
         # plot data
-        for xaxis in ['capacity_grav', "x_form"]:
+        for xaxis in ["capacity_grav", "x_form"]:
             vp = VoltageProfilePlotter(xaxis)
             vp.add_electrode(ie, label="Insertion Profile")
             vp.add_electrode(ce, label="Conversion Profile")
-            fig = vp.get_plotly_figure(term_zero = False)
+            fig = vp.get_plotly_figure(term_zero=False)
             fig.layout.pop("template")
 
-            xx, _ = vp.get_plot_data(ie, term_zero = False)
+            xx, _ = vp.get_plot_data(ie, term_zero=False)
             xmin, xmax = xx[0], xx[-1]
             xlim = xmax - xmin
 
-            fig.update_layout(title_x=0.5, xaxis={'range': (xmin-0.05*xlim, xmax + xlim * 0.05)})
-            d[f'plot_data_{xaxis}'] = fig.to_json()
+            fig.update_layout(
+                title_x=0.5, xaxis={"range": (xmin - 0.05 * xlim, xmax + xlim * 0.05)}
+            )
+            d[f"plot_data_{xaxis}"] = fig.to_json()
         return d
+
 
 class ElectrodesBuilder(Builder):
     def __init__(
@@ -324,7 +329,9 @@ class ElectrodesBuilder(Builder):
             # Need more than one level of lithiation to define a electrode
             # material
 
-            ie = InsertionElectrode.from_entries(group, working_ion_entry, strip_structures=True)
+            ie = InsertionElectrode.from_entries(
+                group, working_ion_entry, strip_structures=True
+            )
             if ie.num_steps < 1:
                 self.logger.warn(
                     f"Not able to generate a hull using the following entires-- \
@@ -336,8 +343,8 @@ class ElectrodesBuilder(Builder):
             )
 
             d = {
-                'insertion_electrode': ie.as_dict(),
-                'converion_electrode': ce.as_dict(),
+                "insertion_electrode": ie.as_dict(),
+                "converion_electrode": ce.as_dict(),
             }
 
             # Get the battery_id using the lowest numerical value
@@ -358,7 +365,7 @@ class ElectrodesBuilder(Builder):
     def update_targets(self, items):
         items = list(filter(None, chain.from_iterable(items)))
         if len(items) > 0:
-            self.logger.info("Updating {} electro documents".format(len(items)))
+            self.logger.info("Updating {} groups documents".format(len(items)))
             self.electro.update(docs=items, key=["battery_id"])
         else:
             self.logger.info("No items to update")
