@@ -144,6 +144,7 @@ class StructureGroupBuilder(Builder):
         self.logger.debug(
             f"Performing initial checks on {len(all_chemsys)} chemical systems containing redox elements with or without the Working Ion."
         )
+        self.total = len(all_chemsys)
 
         for chemsys_l in all_chemsys:
             chemsys = "-".join(sorted(chemsys_l))
