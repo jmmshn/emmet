@@ -208,7 +208,7 @@ class StructureGroupBuilder(Builder):
                 ids = [ts_.task_id for ts_ in g]
                 lowest_id = sorted(ids, key=get_id_num)[0]
                 d_ = {
-                    "task_id": lowest_id,
+                    "task_id": f"{lowest_id}_{self.working_ion}",
                     "has_distinct_compositions": True,
                     "grouped_task_ids": ids,
                     "framework": item["framework"],
@@ -223,7 +223,7 @@ class StructureGroupBuilder(Builder):
             lowest_id = sorted(ids, key=get_id_num)[0]
             results.append(
                 {
-                    "task_id": lowest_id,
+                    "task_id": f"{lowest_id}_{self.working_ion}",
                     "has_distinct_compositions": False,
                     "grouped_task_ids": ids,
                     "framework": item["framework"],
