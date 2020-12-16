@@ -205,6 +205,7 @@ class StructureGroupBuilder(Builder):
                 f"There are {len(mat_ids)} material ids in the source database vs {len(target_mat_ids)} in the target database."
             )
             if mat_ids == target_mat_ids and max_mat_time < min_target_time:
+                yield None
                 continue
             yield {"chemsys": chemsys, "materials": all_mats_in_chemsys}
 
@@ -219,6 +220,8 @@ class StructureGroupBuilder(Builder):
             self.logger.info("No items to update")
 
     def process_item(self, item: Any) -> Any:
+        if item is None:
+            return item
         def get_framework(formula):
             dd_ = Composition(formula).as_dict()
             if self.working_ion in dd_:
