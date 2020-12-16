@@ -19,7 +19,7 @@ def s_hash(el):
     return el.data["comp_delith"]
 
 
-TaskStruct = namedtuple("task_id_structure", ["task_id", "structure"])
+MatDoc = namedtuple("MatDoc", ["task_id", "structure", "formula_pretty", "framework"])
 
 REDOX_ELEMENTS = [
     "Ti",
@@ -136,42 +136,66 @@ class StructureGroupBuilder(Builder):
         }
 
         all_chemsys = self.materials.distinct("chemsys", criteria=chemsys_query)
+        self.logger.debug(
+            f"Performing initial checks on {len(all_chemsys)} chemical systems containing redox elements with or without the Working Ion."
+        )
 
         for chemsys in all_chemsys:
             chemsys_wi = "-".join(sorted(chemsys.split("-") + [self.working_ion]))
-            all_distinct_formula = self.materials.distinct(
-                "formula_pretty", criteria={"chemsys": {"$in": [chemsys_wi, chemsys]}}
+            chemsys_query = {"chemsys": {"$in": [chemsys_wi, chemsys]}}
+
+            all_mats_in_chemsys = list(
+                self.materials.query(
+                    criteria=chemsys_query,
+                    properties=MAT_PROPS + [self.materials.last_updated_field],
+                )
             )
+            self.logger.debug(
+                f"Found {len(all_mats_in_chemsys)} materials in {chemsys_wi}"
+            )
+
+            all_target_docs = list(
+                self.groups.query(
+                    criteria=chemsys_query,
+                    properties=[
+                        "task_id",
+                        self.groups.last_updated_field,
+                        "grouped_task_ids",
+                    ],
+                )
+            )
+            self.logger.debug(
+                f"Found {len(all_target_docs)} Grouped documents in {chemsys_wi}"
+            )
+
+            mat_times = [
+                mat_doc[self.materials.last_updated_field]
+                for mat_doc in all_mats_in_chemsys
+            ]
+            max_mat_time = max(mat_times, default=datetime.min)
+            self.logger.debug(
+                f"The newest material doc was generated at {max_mat_time}."
+            )
+
+            target_times = [
+                g_doc[self.materials.last_updated_field] for g_doc in all_target_docs
+            ]
+            min_target_time = min(target_times, default=datetime.max)
+            self.logger.debug(f"The newest GROUP doc was generated at {min_target_time}.")
+
+            mat_ids = set([mat_doc["task_id"] for mat_doc in all_mats_in_chemsys])
+
+            # If any material id is missing or if any material id has been updated
+            target_mat_ids = set()
+            for g_doc in all_target_docs:
+                target_mat_ids |= set(g_doc["grouped_task_ids"])
 
             self.logger.debug(
-                f"Grouping these chemical formulas based on similarity : {all_distinct_formula}"
+                f"There are {len(mat_ids)} material ids in the source database vs {len(target_mat_ids)} in the target database."
             )
-
-            for form_group in self._get_simlar_formula_in_group(all_distinct_formula):
-                self.logger.debug(f"Goup of similar formula : {form_group}")
-                if len(form_group) > 1:  # possibility of insertion reaction
-                    mat_list = list(
-                        self.materials.query(
-                            {"formula_pretty": {"$in": form_group}},
-                            properties=MAT_PROPS + [self.materials.last_updated_field],
-                        )
-                    )
-                    framework = self._host_comp(form_group[0])
-                    grouped_struct_times = self.groups.distinct(
-                        self.groups.last_updated_field,
-                        criteria={"framework": framework},
-                    )
-                    if not grouped_struct_times:
-                        yield {"framework": framework, "materials": mat_list}
-                    else:
-                        mat_times = [
-                            mat_doc[self.materials.last_updated_field]
-                            for mat_doc in mat_list
-                        ]
-                        if max(mat_times) < min(grouped_struct_times):
-                            continue  # no work is needed
-                    self.groups.remove_docs(criteria={"framework": framework})
-                    yield {"framework": framework, "materials": mat_list}
+            if mat_ids == target_mat_ids and max_mat_time < min_target_time:
+                continue
+            yield {"chemsys": chemsys, "materials": all_mats_in_chemsys}
 
     def update_targets(self, items: List):
         items = list(filter(None, chain.from_iterable(items)))
@@ -184,6 +208,12 @@ class StructureGroupBuilder(Builder):
             self.logger.info("No items to update")
 
     def process_item(self, item: Any) -> Any:
+        def get_framework(formula):
+            dd_ = Composition(formula).as_dict()
+            if self.working_ion in dd_:
+                dd_.pop(self.working_ion)
+            return Composition.from_dict(dd_).reduced_formula
+
         sm = StructureMatcher(
             comparator=ElementComparator(),
             primitive_cell=True,
@@ -193,43 +223,66 @@ class StructureGroupBuilder(Builder):
             angle_tol=self.angle_tol,
         )
 
-        task_id_vs_struct = [
-            TaskStruct(
+        # Convert the material documents for easier grouping
+        mat_docs = [
+            MatDoc(
                 task_id=mat_doc["task_id"],
                 structure=Structure.from_dict(mat_doc["structure"]),
+                formula_pretty=mat_doc["formula_pretty"],
+                framework=get_framework(mat_doc["formula_pretty"]),
             )
             for mat_doc in item["materials"]
         ]
-        results = []
-        ungrouped_structures = []
-        for g in self._group_struct(task_id_vs_struct, sm):
-            different_comps = set([ts_.structure.composition for ts_ in g])
-            if len(different_comps) > 1:
-                ids = [ts_.task_id for ts_ in g]
-                lowest_id = sorted(ids, key=get_id_num)[0]
-                d_ = {
-                    "task_id": f"{lowest_id}_{self.working_ion}",
-                    "has_distinct_compositions": True,
-                    "grouped_task_ids": ids,
-                    "framework": item["framework"],
-                    "working_ion": self.working_ion,
-                }
-                results.append(d_)
-            else:
-                ungrouped_structures.extend(g)
 
-        if ungrouped_structures:
-            ids = [ts_.task_id for ts_ in ungrouped_structures]
-            lowest_id = sorted(ids, key=get_id_num)[0]
-            results.append(
-                {
+        def get_doc_from_group(group, structure_matched=True):
+            """
+            Create a results document from macthed or unmatched groups
+            """
+            different_comps = set([ts_.formula_pretty for ts_ in group])
+            if not structure_matched or (
+                structure_matched and len(different_comps) > 1
+            ):
+                ids = [ts_.task_id for ts_ in group]
+                formulas = {ts_.task_id: ts_.formula_pretty for ts_ in group}
+                lowest_id = sorted(ids, key=get_id_num)[0]
+
+                return {
                     "task_id": f"{lowest_id}_{self.working_ion}",
-                    "has_distinct_compositions": False,
+                    "structure_matched": structure_matched,
+                    "has_distinct_compositions": len(different_comps) > 1,
                     "grouped_task_ids": ids,
-                    "framework": item["framework"],
-                    self.groups.last_updated_field: datetime.utcnow(),
+                    "formulas": formulas,
+                    "framework": framework,
                     "working_ion": self.working_ion,
+                    "chemsys": item["chemsys"],
                 }
+            return None
+
+        results = []
+        framework_groups = groupby(mat_docs, key=lambda x: x.framework)
+        frame_group_cnt_ = 0
+        for framework, f_group in framework_groups:
+            ungrouped_structures = []
+            for g in self._group_struct(list(f_group), sm):
+                res_doc = get_doc_from_group(g, structure_matched=True)
+                if res_doc is not None:
+                    frame_group_cnt_ += len(res_doc["grouped_task_ids"])
+                    results.append(res_doc)
+                else:
+                    ungrouped_structures.extend(g)
+            if ungrouped_structures:
+                frame_group_cnt_ += len(ungrouped_structures)
+                results.append(
+                    get_doc_from_group(ungrouped_structures, structure_matched=False)
+                )
+
+        self.logger.debug(
+            f"Total number of materials ids processed: {frame_group_cnt_}"
+        )
+        if frame_group_cnt_ != len(mat_docs):
+            raise RuntimeError(
+                "The number of procssed IDs at the end does not match the number of supplied materials documents."
+                "Something is seriously wrong, please rebuild the entire database and see if the problem persists."
             )
         return results
 
