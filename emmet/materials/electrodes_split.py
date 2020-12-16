@@ -139,14 +139,15 @@ class StructureGroupBuilder(Builder):
         # get a chemsys that only contains the working ion since the working ion
         # must be present for there to be voltage steps
         all_chemsys = self.materials.distinct("chemsys", criteria=base_query)
-        all_chemsys = filter(lambda x: self.working_ion in x, [chemsys_.split("-") for chemsys_ in all_chemsys])
+        all_chemsys = [*filter(lambda x: self.working_ion in x, [chemsys_.split("-") for chemsys_ in all_chemsys])]
 
         self.logger.debug(
             f"Performing initial checks on {len(all_chemsys)} chemical systems containing redox elements with or without the Working Ion."
         )
 
-        for chemsys in all_chemsys:
-            chemsys_wo = "-".join(sorted(set(chemsys.split("-")) - {self.working_ion}))
+        for chemsys_l in all_chemsys:
+            chemsys = "-".join(sorted(chemsys_l))
+            chemsys_wo = "-".join(sorted(set(chemsys_l) - {self.working_ion}))
             chemsys_query = {"chemsys": {"$in": [chemsys_wo, chemsys]}}
             self.logger.debug(
                 f"QUERY: {chemsys_query}"
