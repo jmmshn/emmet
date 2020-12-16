@@ -113,36 +113,40 @@ class StructureGroupBuilder(Builder):
         """
         Only used in distributed runs
         """
-        all_chemsys = self.materials.distinct(
-            "chemsys",
-            criteria={
-                "$and": [
-                    {"elements": {"$nin": [self.working_ion]}},
-                    {"elements": {"$in": REDOX_ELEMENTS}},
-                ]
-            },
-        )
-        for chemsys in all_chemsys:
-            chemsys_wi = "-".join(sorted(chemsys.split("-") + [self.working_ion]))
-            yield {"query": {"chemsys": {"$in": [chemsys, chemsys_wi]}}}
+        pass
+        # all_chemsys = self.materials.distinct(
+        #     "chemsys",
+        #     criteria={
+        #         "$and": [
+        #             {"elements": {"$nin": [self.working_ion]}},
+        #             {"elements": {"$in": REDOX_ELEMENTS}},
+        #         ]
+        #     },
+        # )
+        # for chemsys in all_chemsys:
+        #     chemsys_wi = "-".join(sorted(set(chemsys.split("-")) - {self.working_ion}))
+        #     yield {"query": {"chemsys": {"$in": [chemsys, chemsys_wi]}}}
 
     def get_items(self):
-        chemsys_query = {
+        # All potentially interesting chemsys must contain the working ion
+        base_query = {
             "$and": [
-                {"elements": {"$nin": [self.working_ion]}},
-                {"elements": {"$in": REDOX_ELEMENTS}},
+                {"elements": {"$in": REDOX_ELEMENTS + [self.working_ion]}},
                 self.query.copy(),
             ]
         }
 
-        all_chemsys = self.materials.distinct("chemsys", criteria=chemsys_query)
+        all_chemsys = self.materials.distinct("chemsys", criteria=base_query)
         self.logger.debug(
             f"Performing initial checks on {len(all_chemsys)} chemical systems containing redox elements with or without the Working Ion."
         )
 
         for chemsys in all_chemsys:
-            chemsys_wi = "-".join(sorted(chemsys.split("-") + [self.working_ion]))
-            chemsys_query = {"chemsys": {"$in": [chemsys_wi, chemsys]}}
+            chemsys_wo = "-".join(sorted(set(chemsys.split("-")) - {self.working_ion}))
+            chemsys_query = {"chemsys": {"$in": [chemsys_wo, chemsys]}}
+            self.logger.debug(
+                f"QUERY: {chemsys_query}"
+            )
 
             all_mats_in_chemsys = list(
                 self.materials.query(
@@ -151,7 +155,7 @@ class StructureGroupBuilder(Builder):
                 )
             )
             self.logger.debug(
-                f"Found {len(all_mats_in_chemsys)} materials in {chemsys_wi}"
+                f"Found {len(all_mats_in_chemsys)} materials in {chemsys_wo}"
             )
 
             all_target_docs = list(
@@ -165,7 +169,7 @@ class StructureGroupBuilder(Builder):
                 )
             )
             self.logger.debug(
-                f"Found {len(all_target_docs)} Grouped documents in {chemsys_wi}"
+                f"Found {len(all_target_docs)} Grouped documents in {chemsys_wo}"
             )
 
             mat_times = [
