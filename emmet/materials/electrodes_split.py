@@ -419,10 +419,6 @@ class InsertionElectrodeBuilder(MapBuilder):
             failed = True
 
         if failed or ie.num_steps < 1:
-            self.logger.warn(
-                f"Not able to generate a hull using the following entires-- \
-                {', '.join([str(en.entry_id) for en in group])}"
-            )
             res = {"task_id": item["task_id"], "has_step": False}
         else:
             res = {"task_id": item["task_id"], "has_step": True}
