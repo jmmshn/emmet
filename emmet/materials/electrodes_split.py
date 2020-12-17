@@ -340,7 +340,6 @@ class StructureGroupBuilder(Builder):
         labs = generic_groupby(
             g, comp=lambda x, y: sm.fit(x.structure, y.structure, symmetric=True)
         )
-        print(labs)
         for ilab in unique(labs):
             sub_g = [g[itr] for itr, jlab in enumerate(labs) if jlab == ilab]
             yield [el for el in sub_g]
