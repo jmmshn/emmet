@@ -92,6 +92,7 @@ class StructureGroupBuilder(Builder):
         ltol: float = 0.2,
         stol: float = 0.3,
         angle_tol: float = 5.0,
+        check_newer: bool = True,
         **kwargs,
     ):
         """
@@ -111,6 +112,7 @@ class StructureGroupBuilder(Builder):
         self.ltol = ltol
         self.stol = stol
         self.angle_tol = angle_tol
+        self.check_newer = check_newer
         super().__init__(sources=[materials], targets=[groups], **kwargs)
 
     def prechunk(self, number_splits: int) -> Iterable[Dict]:
@@ -127,6 +129,10 @@ class StructureGroupBuilder(Builder):
                 self.query.copy(),
             ]
         }
+        self.logger.debug(
+            f"Initial Chemsys QUERY: {base_query}"
+        )
+
 
         # get a chemsys that only contains the working ion since the working ion
         # must be present for there to be voltage steps
@@ -162,51 +168,51 @@ class StructureGroupBuilder(Builder):
             self.logger.debug(
                 f"Found {len(all_mats_in_chemsys)} materials in {chemsys_wo}"
             )
-
-            all_target_docs = list(
-                self.groups.query(
-                    criteria=chemsys_query,
-                    properties=[
-                        "task_id",
-                        self.groups.last_updated_field,
-                        "grouped_task_ids",
-                    ],
+            if self.check_newer:
+                all_target_docs = list(
+                    self.groups.query(
+                        criteria=chemsys_query,
+                        properties=[
+                            "task_id",
+                            self.groups.last_updated_field,
+                            "grouped_task_ids",
+                        ],
+                    )
                 )
-            )
-            self.logger.debug(
-                f"Found {len(all_target_docs)} Grouped documents in {chemsys_wo}"
-            )
+                self.logger.debug(
+                    f"Found {len(all_target_docs)} Grouped documents in {chemsys_wo}"
+                )
 
-            mat_times = [
-                mat_doc[self.materials.last_updated_field]
-                for mat_doc in all_mats_in_chemsys
-            ]
-            max_mat_time = max(mat_times, default=datetime.min)
-            self.logger.debug(
-                f"The newest material doc was generated at {max_mat_time}."
-            )
+                mat_times = [
+                    mat_doc[self.materials.last_updated_field]
+                    for mat_doc in all_mats_in_chemsys
+                ]
+                max_mat_time = max(mat_times, default=datetime.min)
+                self.logger.debug(
+                    f"The newest material doc was generated at {max_mat_time}."
+                )
 
-            target_times = [
-                g_doc[self.materials.last_updated_field] for g_doc in all_target_docs
-            ]
-            min_target_time = min(target_times, default=datetime.max)
-            self.logger.debug(
-                f"The newest GROUP doc was generated at {min_target_time}."
-            )
+                target_times = [
+                    g_doc[self.materials.last_updated_field] for g_doc in all_target_docs
+                ]
+                min_target_time = min(target_times, default=datetime.max)
+                self.logger.debug(
+                    f"The newest GROUP doc was generated at {min_target_time}."
+                )
 
-            mat_ids = set([mat_doc["task_id"] for mat_doc in all_mats_in_chemsys])
+                mat_ids = set([mat_doc["task_id"] for mat_doc in all_mats_in_chemsys])
 
-            # If any material id is missing or if any material id has been updated
-            target_mat_ids = set()
-            for g_doc in all_target_docs:
-                target_mat_ids |= set(g_doc["grouped_task_ids"])
+                # If any material id is missing or if any material id has been updated
+                target_mat_ids = set()
+                for g_doc in all_target_docs:
+                    target_mat_ids |= set(g_doc["grouped_task_ids"])
 
-            self.logger.debug(
-                f"There are {len(mat_ids)} material ids in the source database vs {len(target_mat_ids)} in the target database."
-            )
-            if mat_ids == target_mat_ids and max_mat_time < min_target_time:
-                yield None
-                continue
+                self.logger.debug(
+                    f"There are {len(mat_ids)} material ids in the source database vs {len(target_mat_ids)} in the target database."
+                )
+                if mat_ids == target_mat_ids and max_mat_time < min_target_time:
+                    yield None
+                    continue
             yield {"chemsys": chemsys, "materials": all_mats_in_chemsys}
 
     def update_targets(self, items: List):
@@ -282,7 +288,10 @@ class StructureGroupBuilder(Builder):
             return None
 
         results = []
+        # must sort before grouping
+        mat_docs.sort(key=lambda x: x.framework)
         framework_groups = groupby(mat_docs, key=lambda x: x.framework)
+
         frame_group_cnt_ = 0
         for framework, f_group in framework_groups:
             f_group_l = list(f_group)
@@ -290,13 +299,20 @@ class StructureGroupBuilder(Builder):
                 f"Performing structure matching for {framework} with {len(f_group_l)} documents."
             )
             ungrouped_structures = []
+            g_cnt = 0
             for g in self._group_struct(f_group_l, sm):
                 res_doc = get_doc_from_group(g, structure_matched=True)
                 if res_doc is not None:
+                    self.logger.debug(f"These ids were grouped {res_doc.get('grouped_task_ids', None)}")
                     frame_group_cnt_ += len(res_doc["grouped_task_ids"])
                     results.append(res_doc)
                 else:
                     ungrouped_structures.extend(g)
+            self.logger.debug(f"These ids were ungrouped {[_.task_id for _ in ungrouped_structures]}")
+            self.logger.debug(
+                f"Created {g_cnt} groups with {len(ungrouped_structures)} remaining unmatched"
+            )
+
             if ungrouped_structures:
                 frame_group_cnt_ += len(ungrouped_structures)
                 results.append(
@@ -324,6 +340,7 @@ class StructureGroupBuilder(Builder):
         labs = generic_groupby(
             g, comp=lambda x, y: sm.fit(x.structure, y.structure, symmetric=True)
         )
+        print(labs)
         for ilab in unique(labs):
             sub_g = [g[itr] for itr, jlab in enumerate(labs) if jlab == ilab]
             yield [el for el in sub_g]
