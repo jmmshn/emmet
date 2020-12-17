@@ -361,11 +361,13 @@ class InsertionElectrodeBuilder(MapBuilder):
         grouped_materials: MongoStore,
         insertion_electrode: MongoStore,
         thermo: MongoStore,
+        material: MongoStore,
         **kwargs,
     ):
         self.grouped_materials = grouped_materials
         self.insertion_electrode = insertion_electrode
         self.thermo = thermo
+        self.material = material
         super().__init__(
             source=self.grouped_materials,
             target=self.insertion_electrode,
@@ -402,6 +404,19 @@ class InsertionElectrodeBuilder(MapBuilder):
                     )
                 ]
 
+            with self.material as store:
+                material_docs = [
+                    *store.query(
+                        {
+                            "$and": [
+                                {"task_id": {"$in": item["grouped_task_ids"]}},
+                                {"_sbxn": {"$in": ["core"]}},
+                            ]
+                        },
+                        properties=["task_id", "structure"],
+                    )
+                ]
+
             self.logger.debug(f"Found for {len(thermo_docs)} Thermo Documents.")
             working_ion_doc = get_working_ion_entry(item["working_ion"])
             return {
@@ -409,16 +424,23 @@ class InsertionElectrodeBuilder(MapBuilder):
                 "working_ion_doc": working_ion_doc,
                 "entry_data": item["entry_data"],
                 "thermo_docs": thermo_docs,
+                "material_docs": material_docs,
             }
 
         yield from map(modify_item, super().get_items())
 
     def unary_function(self, item):
+        """
+        - Add volume information to each entry to create the insertion electrode document
+        - Add the host structure
+        - TODO parse the structures in the different materials documents and create a simple migration graph
+        """
         entries = [tdoc_["thermo"]["entry"] for tdoc_ in item["thermo_docs"]]
         entries = list(map(ComputedEntry.from_dict, entries))
         working_ion_entry = ComputedEntry.from_dict(
             item["working_ion_doc"]["thermo"]["entry"]
         )
+        working_ion = working_ion_entry.composition.reduced_formula
         decomp_energies = {
             d_["task_id"]: d_["thermo"]["e_above_hull"] for d_ in item["thermo_docs"]
         }
@@ -433,6 +455,7 @@ class InsertionElectrodeBuilder(MapBuilder):
             ient.data["volume"] = item["entry_data"][ient.entry_id]["volume"]
             ient.data["decomposition_energy"] = decomp_energies[ient.entry_id]
 
+
         failed = False
         try:
             ie = InsertionElectrode.from_entries(entries, working_ion_entry)
@@ -445,6 +468,10 @@ class InsertionElectrodeBuilder(MapBuilder):
             res = {"task_id": item["task_id"], "has_step": True}
             res.update(ie.get_summary_dict())
             res["InsertionElectrode"] = ie.as_dict()
+            least_wion_ent = min(entries, key=lambda x: x.composition.get_atomic_fraction(working_ion))
+            mdoc_ = next(filter(lambda x: x['task_id'] == least_wion_ent.entry_id, item['material_docs']))
+            host_structure = Structure.from_dict(mdoc_['structure'])
+            res["host_structure"] = host_structure
         return res
 
 
