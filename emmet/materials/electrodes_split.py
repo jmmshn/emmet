@@ -412,8 +412,13 @@ class InsertionElectrodeBuilder(MapBuilder):
                     f"In {item['task_id']}: the compositions for task {ient.entry_id} are matched between the StructureGroup DB and the Thermo DB "
                 )
             ient.data["volume"] = item["entry_data"][ient.entry_id]["volume"]
-        ie = InsertionElectrode.from_entries(entries, working_ion_entry)
-        if ie.num_steps < 1:
+        failed = False
+        try:
+            ie = InsertionElectrode.from_entries(entries, working_ion_entry)
+        except:
+            failed = True
+
+        if failed or ie.num_steps < 1:
             self.logger.warn(
                 f"Not able to generate a hull using the following entires-- \
                 {', '.join([str(en.entry_id) for en in group])}"
