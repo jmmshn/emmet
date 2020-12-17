@@ -382,7 +382,7 @@ class InsertionElectrodeBuilder(MapBuilder):
                                 {"_sbxn": {"$in": ["core"]}},
                             ]
                         },
-                        properties=["task_id", "_sbxn", "thermo.entry"],
+                        properties=["task_id", "_sbxn", "thermo"],
                     )
                 ]
 
