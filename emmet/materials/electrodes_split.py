@@ -471,7 +471,7 @@ class InsertionElectrodeBuilder(MapBuilder):
             least_wion_ent = min(entries, key=lambda x: x.composition.get_atomic_fraction(working_ion))
             mdoc_ = next(filter(lambda x: x['task_id'] == least_wion_ent.entry_id, item['material_docs']))
             host_structure = Structure.from_dict(mdoc_['structure'])
-            res["host_structure"] = host_structure
+            res["host_structure"] = host_structure.as_dict()
         return res
 
 
