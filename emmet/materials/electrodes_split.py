@@ -403,6 +403,9 @@ class InsertionElectrodeBuilder(MapBuilder):
         working_ion_entry = ComputedEntry.from_dict(
             item["working_ion_doc"]["thermo"]["entry"]
         )
+        decomp_energies = {
+            d_["task_id"]: d_["thermo"]["e_above_hull"] for d_ in item["thermo_docs"]
+        }
         for ient in entries:
             if (
                 Composition(item["entry_data"][ient.entry_id]["composition"])
@@ -412,6 +415,8 @@ class InsertionElectrodeBuilder(MapBuilder):
                     f"In {item['task_id']}: the compositions for task {ient.entry_id} are matched between the StructureGroup DB and the Thermo DB "
                 )
             ient.data["volume"] = item["entry_data"][ient.entry_id]["volume"]
+            ient.data["decomposition_energy"] = decomp_energies[ient.entry_id]
+
         failed = False
         try:
             ie = InsertionElectrode.from_entries(entries, working_ion_entry)
