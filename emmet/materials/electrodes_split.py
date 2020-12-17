@@ -251,6 +251,7 @@ class StructureGroupBuilder(Builder):
             ):
                 ids = [ts_.task_id for ts_ in group]
                 formulas = {ts_.task_id: ts_.formula_pretty for ts_ in group}
+                volumes = {ts_.task_id: ts_.structure.volume for ts_ in group}
                 lowest_id = sorted(ids, key=get_id_num)[0]
 
                 return {
@@ -259,6 +260,7 @@ class StructureGroupBuilder(Builder):
                     "has_distinct_compositions": len(different_comps) > 1,
                     "grouped_task_ids": ids,
                     "formulas": formulas,
+                    "volumes": volumes,
                     "framework": framework,
                     "working_ion": self.working_ion,
                     "chemsys": item["chemsys"],
@@ -333,26 +335,23 @@ class InsertionElectrodeBuilder(MapBuilder):
 
     def get_items(self):
         """
-        For cases where the data does not have a structure field
-        Assume that the top level object is the structure dictionary
-        This means that even if there is a structure object at the root level,
-        the items will be rearranged to have a "structure" field
         """
 
         def modify_item(item):
-            print(len(item['grouped_task_ids']))
+            self.logger.debug(f"Looing for {len(item['grouped_task_ids'])} task_ids in the Thermo DB.")
             thermo_docs = [
                 *self.thermo.query({"$and" : [
                     {"task_id": {"$in": item['grouped_task_ids']}},
                     {"_sbxn": {"$in": ["core"]}},
                     ]
-                }, properties=['task_id',"_sbxn",  "entry"])]
-            print(len(thermo_docs))
-            return {"task_id" : item['task_id'], "thermod_docs": thermo_docs}
+                }, properties=['task_id',"_sbxn",  "thermo.entry"])]
+            self.logger.debug(f"Found for {len(thermo_docs)} Thermo Documents.")
+            return {"task_id" : item['task_id'], "thermo_docs": thermo_docs}
         yield from map(modify_item, super().get_items())
 
     def unary_function(self, item):
-        pass
+        entries = [tdoc_['thermo']['entry'] for tdoc_ in item["thermo_docs"]]
+        map(Computedentries)
 
 
 def get_id_num(task_id):
