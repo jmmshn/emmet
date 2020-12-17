@@ -1,6 +1,7 @@
 import operator
 from collections import namedtuple
 from datetime import datetime
+from functools import lru_cache
 from itertools import groupby, chain
 from typing import Iterable, Dict, List, Any
 
@@ -9,10 +10,13 @@ from maggma.stores import MongoStore
 from numpy import unique
 from pymatgen import Composition
 from pymatgen.analysis.structure_matcher import StructureMatcher, ElementComparator
+from pymatgen.apps.battery.insertion_battery import InsertionElectrode
 from pymatgen.core import Structure
 
 __author__ = "Jimmy Shen"
 __email__ = "jmmshn@lbl.gov"
+
+from pymatgen.entries.computed_entries import ComputedEntry
 
 
 def s_hash(el):
@@ -341,6 +345,11 @@ class InsertionElectrodeBuilder(MapBuilder):
     def get_items(self):
         """
         """
+        @lru_cache(None)
+        def get_working_ion_entry(working_ion):
+            working_ion_docs = [*self.thermo.query({"chemsys": working_ion})]
+            best_wion = min(working_ion_docs, key=lambda x : x['thermo']['energy_per_atom'])
+            return best_wion
 
         def modify_item(item):
             self.logger.debug(f"Looing for {len(item['grouped_task_ids'])} task_ids in the Thermo DB.")
@@ -350,13 +359,27 @@ class InsertionElectrodeBuilder(MapBuilder):
                     {"_sbxn": {"$in": ["core"]}},
                     ]
                 }, properties=['task_id',"_sbxn",  "thermo.entry"])]
+
             self.logger.debug(f"Found for {len(thermo_docs)} Thermo Documents.")
-            return {"task_id" : item['task_id'], "thermo_docs": thermo_docs}
+            working_ion_doc = get_working_ion_entry(item['working_ion'])
+            return {"task_id" : item['task_id'], "working_ion_doc" : working_ion_doc, "entry_data": item['entry_data'], "thermo_docs": thermo_docs}
         yield from map(modify_item, super().get_items())
 
     def unary_function(self, item):
         entries = [tdoc_['thermo']['entry'] for tdoc_ in item["thermo_docs"]]
-        map(Computedentries)
+        entries = list(map(ComputedEntry.from_dict, entries))
+        working_ion_entry = ComputedEntry.from_dict(item['working_ion_doc']['thermo']['entry'])
+        for ient in entries:
+            if Composition(item["entry_data"][ient.entry_id]['composition']) != ient.composition:
+                raise RuntimeError(f"In {item['task_id']}: the compositions for task {ient.entry_id} are matched between the StructureGroup DB and the Thermo DB ")
+            ient.data['volume'] = item["entry_data"][ient.entry_id]['volume']
+        ie = InsertionElectrode.from_entries(
+            entries, working_ion_entry
+        )
+        res = ie.get_summary_dict()
+        res['InsertionElectrode'] = ie.as_dict()
+        return res
+
 
 
 def get_id_num(task_id):
