@@ -253,7 +253,7 @@ class StructureGroupBuilder(Builder):
                 formulas = {ts_.task_id: ts_.formula_pretty for ts_ in group}
                 entry_data = {
                     ts_.task_id: {
-                        "composition": ts_.structure.composition,
+                        "composition": ts_.structure.composition.as_dict(),
                         "volume": ts_.structure.volume,
                     }
                     for ts_ in group}
