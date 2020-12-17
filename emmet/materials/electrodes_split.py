@@ -347,18 +347,20 @@ class InsertionElectrodeBuilder(MapBuilder):
         """
         @lru_cache(None)
         def get_working_ion_entry(working_ion):
-            working_ion_docs = [*self.thermo.query({"chemsys": working_ion})]
+            with self.thermo as store:
+                working_ion_docs = [*store.query({"chemsys": working_ion})]
             best_wion = min(working_ion_docs, key=lambda x : x['thermo']['energy_per_atom'])
             return best_wion
 
         def modify_item(item):
             self.logger.debug(f"Looing for {len(item['grouped_task_ids'])} task_ids in the Thermo DB.")
-            thermo_docs = [
-                *self.thermo.query({"$and" : [
-                    {"task_id": {"$in": item['grouped_task_ids']}},
-                    {"_sbxn": {"$in": ["core"]}},
-                    ]
-                }, properties=['task_id',"_sbxn",  "thermo.entry"])]
+            with self.thermo as store:
+                thermo_docs = [
+                    *store.query({"$and" : [
+                        {"task_id": {"$in": item['grouped_task_ids']}},
+                        {"_sbxn": {"$in": ["core"]}},
+                        ]
+                    }, properties=['task_id',"_sbxn",  "thermo.entry"])]
 
             self.logger.debug(f"Found for {len(thermo_docs)} Thermo Documents.")
             working_ion_doc = get_working_ion_entry(item['working_ion'])
