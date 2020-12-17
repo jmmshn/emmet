@@ -114,18 +114,6 @@ class StructureGroupBuilder(Builder):
         Only used in distributed runs
         """
         pass
-        # all_chemsys = self.materials.distinct(
-        #     "chemsys",
-        #     criteria={
-        #         "$and": [
-        #             {"elements": {"$nin": [self.working_ion]}},
-        #             {"elements": {"$in": REDOX_ELEMENTS}},
-        #         ]
-        #     },
-        # )
-        # for chemsys in all_chemsys:
-        #     chemsys_wi = "-".join(sorted(set(chemsys.split("-")) - {self.working_ion}))
-        #     yield {"query": {"chemsys": {"$in": [chemsys, chemsys_wi]}}}
 
     def get_items(self):
         # All potentially interesting chemsys must contain the working ion
