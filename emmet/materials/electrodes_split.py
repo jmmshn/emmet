@@ -251,7 +251,12 @@ class StructureGroupBuilder(Builder):
             ):
                 ids = [ts_.task_id for ts_ in group]
                 formulas = {ts_.task_id: ts_.formula_pretty for ts_ in group}
-                volumes = {ts_.task_id: ts_.structure.volume for ts_ in group}
+                entry_data = {
+                    ts_.task_id: {
+                        "composition": ts_.structure.composition,
+                        "volume": ts_.structure.volume,
+                    }
+                    for ts_ in group}
                 lowest_id = sorted(ids, key=get_id_num)[0]
 
                 return {
@@ -260,7 +265,7 @@ class StructureGroupBuilder(Builder):
                     "has_distinct_compositions": len(different_comps) > 1,
                     "grouped_task_ids": ids,
                     "formulas": formulas,
-                    "volumes": volumes,
+                    "entry_data": entry_data,
                     "framework": framework,
                     "working_ion": self.working_ion,
                     "chemsys": item["chemsys"],
