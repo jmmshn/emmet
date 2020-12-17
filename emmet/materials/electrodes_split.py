@@ -1,15 +1,15 @@
 import operator
 from collections import namedtuple
+from datetime import datetime
 from itertools import groupby, chain
 from typing import Iterable, Dict, List, Any
 
-from maggma.builders import Builder
+from maggma.builders import Builder, MapBuilder
 from maggma.stores import MongoStore
 from numpy import unique
 from pymatgen import Composition
 from pymatgen.analysis.structure_matcher import StructureMatcher, ElementComparator
 from pymatgen.core import Structure
-from datetime import datetime
 
 __author__ = "Jimmy Shen"
 __email__ = "jmmshn@lbl.gov"
@@ -67,7 +67,7 @@ def generic_groupby(list_in, comp=operator.eq):
         if ls1 is not None:
             continue
         list_out[i1] = label_num
-        for i2, ls2 in list(enumerate(list_out))[i1 + 1 :]:
+        for i2, ls2 in list(enumerate(list_out))[i1 + 1:]:
             if comp(list_in[i1], list_in[i2]):
                 if list_out[i2] is None:
                     list_out[i2] = list_out[i1]
@@ -80,15 +80,15 @@ def generic_groupby(list_in, comp=operator.eq):
 
 class StructureGroupBuilder(Builder):
     def __init__(
-        self,
-        materials: MongoStore,
-        groups: MongoStore,
-        working_ion: str,
-        query: dict = None,
-        ltol: float = 0.2,
-        stol: float = 0.3,
-        angle_tol: float = 5.0,
-        **kwargs,
+            self,
+            materials: MongoStore,
+            groups: MongoStore,
+            working_ion: str,
+            query: dict = None,
+            ltol: float = 0.2,
+            stol: float = 0.3,
+            angle_tol: float = 5.0,
+            **kwargs,
     ):
         """
         Calculates physical parameters of battery materials the battery entries using
@@ -128,7 +128,8 @@ class StructureGroupBuilder(Builder):
         # must be present for there to be voltage steps
         all_chemsys = self.materials.distinct("chemsys", criteria=base_query)
         # Contains the working ion but not ONLY the working ion
-        all_chemsys = [*filter(lambda x: self.working_ion in x and len(x) > 1, [chemsys_.split("-") for chemsys_ in all_chemsys])]
+        all_chemsys = [
+            *filter(lambda x: self.working_ion in x and len(x) > 1, [chemsys_.split("-") for chemsys_ in all_chemsys])]
 
         self.logger.debug(
             f"Performing initial checks on {len(all_chemsys)} chemical systems containing redox elements with or without the Working Ion."
@@ -138,7 +139,10 @@ class StructureGroupBuilder(Builder):
         for chemsys_l in all_chemsys:
             chemsys = "-".join(sorted(chemsys_l))
             chemsys_wo = "-".join(sorted(set(chemsys_l) - {self.working_ion}))
-            chemsys_query = {"chemsys": {"$in": [chemsys_wo, chemsys]}}
+            chemsys_query = {
+                "chemsys": {"$in": [chemsys_wo, chemsys]},
+                "_sbxn": {"$in": ["core"]},
+            }
             self.logger.debug(
                 f"QUERY: {chemsys_query}"
             )
@@ -210,6 +214,7 @@ class StructureGroupBuilder(Builder):
     def process_item(self, item: Any) -> Any:
         if item is None:
             return item
+
         def get_framework(formula):
             dd_ = Composition(formula).as_dict()
             if self.working_ion in dd_:
@@ -242,7 +247,7 @@ class StructureGroupBuilder(Builder):
             """
             different_comps = set([ts_.formula_pretty for ts_ in group])
             if not structure_matched or (
-                structure_matched and len(different_comps) > 1
+                    structure_matched and len(different_comps) > 1
             ):
                 ids = [ts_.task_id for ts_ in group]
                 formulas = {ts_.task_id: ts_.formula_pretty for ts_ in group}
@@ -314,6 +319,40 @@ class StructureGroupBuilder(Builder):
     def _get_simlar_formula_in_group(self, formula_group):
         for k, g in groupby(formula_group, self._host_comp):
             yield list(g)  # Store group iterator as a list
+
+
+class InsertionElectrodeBuilder(MapBuilder):
+    def __init__(self, grouped_materials: MongoStore, insertion_electrode: MongoStore, thermo: MongoStore, **kwargs):
+        self.grouped_materials = grouped_materials
+        self.insertion_electrode = insertion_electrode
+        self.thermo = thermo
+        super().__init__(
+            source=self.grouped_materials, target=self.insertion_electrode,
+            query={"structure_matched": True, "has_distinct_compositions": True}, **kwargs
+        )
+
+    def get_items(self):
+        """
+        For cases where the data does not have a structure field
+        Assume that the top level object is the structure dictionary
+        This means that even if there is a structure object at the root level,
+        the items will be rearranged to have a "structure" field
+        """
+
+        def modify_item(item):
+            print(len(item['grouped_task_ids']))
+            thermo_docs = [
+                *self.thermo.query({"$and" : [
+                    {"task_id": {"$in": item['grouped_task_ids']}},
+                    {"_sbxn": {"$in": ["core"]}},
+                    ]
+                }, properties=['task_id',"_sbxn",  "entry"])]
+            print(len(thermo_docs))
+            return {"task_id" : item['task_id'], "thermod_docs": thermo_docs}
+        yield from map(modify_item, super().get_items())
+
+    def unary_function(self, item):
+        pass
 
 
 def get_id_num(task_id):
