@@ -71,7 +71,7 @@ def generic_groupby(list_in, comp=operator.eq):
         if ls1 is not None:
             continue
         list_out[i1] = label_num
-        for i2, ls2 in list(enumerate(list_out))[i1 + 1:]:
+        for i2, ls2 in list(enumerate(list_out))[i1 + 1 :]:
             if comp(list_in[i1], list_in[i2]):
                 if list_out[i2] is None:
                     list_out[i2] = list_out[i1]
@@ -84,15 +84,15 @@ def generic_groupby(list_in, comp=operator.eq):
 
 class StructureGroupBuilder(Builder):
     def __init__(
-            self,
-            materials: MongoStore,
-            groups: MongoStore,
-            working_ion: str,
-            query: dict = None,
-            ltol: float = 0.2,
-            stol: float = 0.3,
-            angle_tol: float = 5.0,
-            **kwargs,
+        self,
+        materials: MongoStore,
+        groups: MongoStore,
+        working_ion: str,
+        query: dict = None,
+        ltol: float = 0.2,
+        stol: float = 0.3,
+        angle_tol: float = 5.0,
+        **kwargs,
     ):
         """
         Calculates physical parameters of battery materials the battery entries using
@@ -133,7 +133,11 @@ class StructureGroupBuilder(Builder):
         all_chemsys = self.materials.distinct("chemsys", criteria=base_query)
         # Contains the working ion but not ONLY the working ion
         all_chemsys = [
-            *filter(lambda x: self.working_ion in x and len(x) > 1, [chemsys_.split("-") for chemsys_ in all_chemsys])]
+            *filter(
+                lambda x: self.working_ion in x and len(x) > 1,
+                [chemsys_.split("-") for chemsys_ in all_chemsys],
+            )
+        ]
 
         self.logger.debug(
             f"Performing initial checks on {len(all_chemsys)} chemical systems containing redox elements with or without the Working Ion."
@@ -147,9 +151,7 @@ class StructureGroupBuilder(Builder):
                 "chemsys": {"$in": [chemsys_wo, chemsys]},
                 "_sbxn": {"$in": ["core"]},
             }
-            self.logger.debug(
-                f"QUERY: {chemsys_query}"
-            )
+            self.logger.debug(f"QUERY: {chemsys_query}")
 
             all_mats_in_chemsys = list(
                 self.materials.query(
@@ -188,7 +190,9 @@ class StructureGroupBuilder(Builder):
                 g_doc[self.materials.last_updated_field] for g_doc in all_target_docs
             ]
             min_target_time = min(target_times, default=datetime.max)
-            self.logger.debug(f"The newest GROUP doc was generated at {min_target_time}.")
+            self.logger.debug(
+                f"The newest GROUP doc was generated at {min_target_time}."
+            )
 
             mat_ids = set([mat_doc["task_id"] for mat_doc in all_mats_in_chemsys])
 
@@ -251,7 +255,7 @@ class StructureGroupBuilder(Builder):
             """
             different_comps = set([ts_.formula_pretty for ts_ in group])
             if not structure_matched or (
-                    structure_matched and len(different_comps) > 1
+                structure_matched and len(different_comps) > 1
             ):
                 ids = [ts_.task_id for ts_ in group]
                 formulas = {ts_.task_id: ts_.formula_pretty for ts_ in group}
@@ -260,7 +264,8 @@ class StructureGroupBuilder(Builder):
                         "composition": ts_.structure.composition.as_dict(),
                         "volume": ts_.structure.volume,
                     }
-                    for ts_ in group}
+                    for ts_ in group
+                }
                 lowest_id = sorted(ids, key=get_id_num)[0]
 
                 return {
@@ -281,7 +286,9 @@ class StructureGroupBuilder(Builder):
         frame_group_cnt_ = 0
         for framework, f_group in framework_groups:
             f_group_l = list(f_group)
-            self.logger.debug(f"Performing structure matching for {framework} with {len(f_group_l)} documents.")
+            self.logger.debug(
+                f"Performing structure matching for {framework} with {len(f_group_l)} documents."
+            )
             ungrouped_structures = []
             for g in self._group_struct(f_group_l, sm):
                 res_doc = get_doc_from_group(g, structure_matched=True)
@@ -333,55 +340,90 @@ class StructureGroupBuilder(Builder):
 
 
 class InsertionElectrodeBuilder(MapBuilder):
-    def __init__(self, grouped_materials: MongoStore, insertion_electrode: MongoStore, thermo: MongoStore, **kwargs):
+    def __init__(
+        self,
+        grouped_materials: MongoStore,
+        insertion_electrode: MongoStore,
+        thermo: MongoStore,
+        **kwargs,
+    ):
         self.grouped_materials = grouped_materials
         self.insertion_electrode = insertion_electrode
         self.thermo = thermo
         super().__init__(
-            source=self.grouped_materials, target=self.insertion_electrode,
-            query={"structure_matched": True, "has_distinct_compositions": True}, **kwargs
+            source=self.grouped_materials,
+            target=self.insertion_electrode,
+            query={"structure_matched": True, "has_distinct_compositions": True},
+            **kwargs,
         )
 
     def get_items(self):
-        """
-        """
+        """"""
+
         @lru_cache(None)
         def get_working_ion_entry(working_ion):
             with self.thermo as store:
                 working_ion_docs = [*store.query({"chemsys": working_ion})]
-            best_wion = min(working_ion_docs, key=lambda x : x['thermo']['energy_per_atom'])
+            best_wion = min(
+                working_ion_docs, key=lambda x: x["thermo"]["energy_per_atom"]
+            )
             return best_wion
 
         def modify_item(item):
-            self.logger.debug(f"Looing for {len(item['grouped_task_ids'])} task_ids in the Thermo DB.")
+            self.logger.debug(
+                f"Looking for {len(item['grouped_task_ids'])} task_ids in the Thermo DB."
+            )
             with self.thermo as store:
                 thermo_docs = [
-                    *store.query({"$and" : [
-                        {"task_id": {"$in": item['grouped_task_ids']}},
-                        {"_sbxn": {"$in": ["core"]}},
-                        ]
-                    }, properties=['task_id',"_sbxn",  "thermo.entry"])]
+                    *store.query(
+                        {
+                            "$and": [
+                                {"task_id": {"$in": item["grouped_task_ids"]}},
+                                {"_sbxn": {"$in": ["core"]}},
+                            ]
+                        },
+                        properties=["task_id", "_sbxn", "thermo.entry"],
+                    )
+                ]
 
             self.logger.debug(f"Found for {len(thermo_docs)} Thermo Documents.")
-            working_ion_doc = get_working_ion_entry(item['working_ion'])
-            return {"task_id" : item['task_id'], "working_ion_doc" : working_ion_doc, "entry_data": item['entry_data'], "thermo_docs": thermo_docs}
+            working_ion_doc = get_working_ion_entry(item["working_ion"])
+            return {
+                "task_id": item["task_id"],
+                "working_ion_doc": working_ion_doc,
+                "entry_data": item["entry_data"],
+                "thermo_docs": thermo_docs,
+            }
+
         yield from map(modify_item, super().get_items())
 
     def unary_function(self, item):
-        entries = [tdoc_['thermo']['entry'] for tdoc_ in item["thermo_docs"]]
+        entries = [tdoc_["thermo"]["entry"] for tdoc_ in item["thermo_docs"]]
         entries = list(map(ComputedEntry.from_dict, entries))
-        working_ion_entry = ComputedEntry.from_dict(item['working_ion_doc']['thermo']['entry'])
-        for ient in entries:
-            if Composition(item["entry_data"][ient.entry_id]['composition']) != ient.composition:
-                raise RuntimeError(f"In {item['task_id']}: the compositions for task {ient.entry_id} are matched between the StructureGroup DB and the Thermo DB ")
-            ient.data['volume'] = item["entry_data"][ient.entry_id]['volume']
-        ie = InsertionElectrode.from_entries(
-            entries, working_ion_entry
+        working_ion_entry = ComputedEntry.from_dict(
+            item["working_ion_doc"]["thermo"]["entry"]
         )
-        res = ie.get_summary_dict()
-        res['InsertionElectrode'] = ie.as_dict()
+        for ient in entries:
+            if (
+                Composition(item["entry_data"][ient.entry_id]["composition"])
+                != ient.composition
+            ):
+                raise RuntimeError(
+                    f"In {item['task_id']}: the compositions for task {ient.entry_id} are matched between the StructureGroup DB and the Thermo DB "
+                )
+            ient.data["volume"] = item["entry_data"][ient.entry_id]["volume"]
+        ie = InsertionElectrode.from_entries(entries, working_ion_entry)
+        if ie.num_steps < 1:
+            self.logger.warn(
+                f"Not able to generate a hull using the following entires-- \
+                {', '.join([str(en.entry_id) for en in group])}"
+            )
+            res = {"task_id": item["task_id"], "has_step": False}
+        else:
+            res = {"task_id": item["task_id"], "has_step": True}
+            res.update(ie.get_summary_dict())
+            res["InsertionElectrode"] = ie.as_dict()
         return res
-
 
 
 def get_id_num(task_id):
